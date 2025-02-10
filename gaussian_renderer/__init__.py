@@ -14,6 +14,13 @@ import math
 from diff_gaussian_rasterization import GaussianRasterizationSettings, GaussianRasterizer
 from scene.gaussian_model import GaussianModel
 from utils.sh_utils import eval_sh
+import gnureadline
+
+def convert_sh_to_rgb(sh_dc: torch.Tensor) -> torch.Tensor:
+    C0 = 0.28209479177387814
+    sh_dv = (sh_dc * C0) + 0.5
+    
+    return torch.clamp(sh_dv, 0, 1)
 
 def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, scaling_modifier = 1.0, separate_sh = False, override_color = None, use_trained_exp=False):
     """
@@ -61,7 +68,8 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
     rotations = None
     cov3D_precomp = None
 
-    if pipe.compute_cov3D_python:
+    # if pipe.compute_cov3D_python:
+    if True:
         cov3D_precomp = pc.get_covariance(scaling_modifier)
     else:
         scales = pc.get_scaling
@@ -71,6 +79,9 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
     # from SHs in Python, do it. If not, then SH -> RGB conversion will be done by rasterizer.
     shs = None
     colors_precomp = None
+    print("Covariance 3D precomp: ", cov3D_precomp)
+    print("WARNING: Converting SHs to RGB in Python")
+    pipe.convert_SHs_python = True
     if override_color is None:
         if pipe.convert_SHs_python:
             shs_view = pc.get_features.transpose(1, 2).view(-1, 3, (pc.max_sh_degree+1)**2)
@@ -78,6 +89,7 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
             dir_pp_normalized = dir_pp/dir_pp.norm(dim=1, keepdim=True)
             sh2rgb = eval_sh(pc.active_sh_degree, shs_view, dir_pp_normalized)
             colors_precomp = torch.clamp_min(sh2rgb + 0.5, 0.0)
+            colors_precomp = convert_sh_to_rgb(pc.get_features_dc).squeeze(1)
         else:
             if separate_sh:
                 dc, shs = pc.get_features_dc, pc.get_features_rest
@@ -87,6 +99,7 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
         colors_precomp = override_color
 
     # Rasterize visible Gaussians to image, obtain their radii (on screen). 
+    
     if separate_sh:
         rendered_image, radii, depth_image = rasterizer(
             means3D = means3D,

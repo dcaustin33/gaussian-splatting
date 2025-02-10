@@ -64,6 +64,10 @@ class GaussianModel:
         self.percent_dense = 0
         self.spatial_lr_scale = 0
         self.setup_functions()
+        
+        self.start_idx = 3
+        self.idx = 4
+        print(f"WARNING: Only passing {self.idx} points to the rasterizer")
 
     def capture(self):
         return (
@@ -101,46 +105,46 @@ class GaussianModel:
 
     @property
     def get_scaling(self):
-        return self.scaling_activation(self._scaling)
+        return self.scaling_activation(self._scaling)[self.start_idx:self.idx]
     
     @property
     def get_rotation(self):
-        return self.rotation_activation(self._rotation)
+        return self.rotation_activation(self._rotation)[self.start_idx:self.idx]
     
     @property
     def get_xyz(self):
-        return self._xyz
+        return self._xyz[self.start_idx:self.idx]
     
     @property
     def get_features(self):
         features_dc = self._features_dc
         features_rest = self._features_rest
-        return torch.cat((features_dc, features_rest), dim=1)
+        return torch.cat((features_dc, features_rest), dim=1)[self.start_idx:self.idx]
     
     @property
     def get_features_dc(self):
-        return self._features_dc
+        return self._features_dc[self.start_idx:self.idx]
     
     @property
     def get_features_rest(self):
-        return self._features_rest
+        return self._features_rest[self.start_idx:self.idx]
     
     @property
     def get_opacity(self):
-        return self.opacity_activation(self._opacity)
+        return self.opacity_activation(self._opacity)[self.start_idx:self.idx]
     
     @property
     def get_exposure(self):
-        return self._exposure
+        return self._exposure[self.start_idx:self.idx]
 
     def get_exposure_from_name(self, image_name):
         if self.pretrained_exposures is None:
-            return self._exposure[self.exposure_mapping[image_name]]
+            return self._exposure[self.exposure_mapping[image_name]][self.start_idx:self.idx]
         else:
-            return self.pretrained_exposures[image_name]
+            return self.pretrained_exposures[image_name][self.start_idx:self.idx]
     
     def get_covariance(self, scaling_modifier = 1):
-        return self.covariance_activation(self.get_scaling, scaling_modifier, self._rotation)
+        return self.covariance_activation(self.get_scaling, scaling_modifier, self._rotation[self.start_idx:self.idx])
 
     def oneupSHdegree(self):
         if self.active_sh_degree < self.max_sh_degree:
@@ -174,6 +178,9 @@ class GaussianModel:
         self.pretrained_exposures = None
         exposure = torch.eye(3, 4, device="cuda")[None].repeat(len(cam_infos), 1, 1)
         self._exposure = nn.Parameter(exposure.requires_grad_(True))
+
+    def get_trainable_parameters(self):
+        return [self._xyz, self._features_dc, self._features_rest, self._opacity, self._scaling, self._rotation]
 
     def training_setup(self, training_args):
         self.percent_dense = training_args.percent_dense

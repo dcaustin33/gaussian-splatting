@@ -98,9 +98,12 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         if not viewpoint_stack:
             viewpoint_stack = scene.getTrainCameras().copy()
             viewpoint_indices = list(range(len(viewpoint_stack)))
-        rand_idx = randint(0, len(viewpoint_indices) - 1)
+        # rand_idx = randint(0, len(viewpoint_indices) - 1)
+        rand_idx = 0
+        print(f"WARNING: Using only one ANGLE: {rand_idx}")
         viewpoint_cam = viewpoint_stack.pop(rand_idx)
         vind = viewpoint_indices.pop(rand_idx)
+        import pdb; pdb.set_trace()
 
         # Render
         if (iteration - 1) == debug_from:
@@ -140,6 +143,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
             Ll1depth = 0
 
         loss.backward()
+        import pdb; pdb.set_trace()
 
         iter_end.record()
 
