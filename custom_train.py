@@ -40,7 +40,9 @@ def loss_fn(
     output_image: torch.Tensor, image: torch.Tensor, lambda_l1: float
 ) -> torch.Tensor:
     l1_loss = torch.nn.L1Loss()(output_image, image)
+    # l1_loss = torch.Tensor([0]).to("cuda")
     ssim_loss = 1 - fused_ssim(output_image.unsqueeze(0), image.unsqueeze(0))
+    # ssim_loss = torch.Tensor([0]).to("cuda")
     total_loss = lambda_l1 * l1_loss + (1 - lambda_l1) * (ssim_loss)
     return {"l1_loss": l1_loss, "ssim_loss": ssim_loss, "total_loss": total_loss}
 
@@ -56,9 +58,10 @@ def render_set(model_path, name, iteration, views, gaussians, pipeline, backgrou
     makedirs(render_path, exist_ok=True)
     makedirs(gts_path, exist_ok=True)
 
-    optimizer = torch.optim.Adam(gaussians.get_trainable_parameters(), lr=0.001)
+    # import pdb; pdb.set_trace()
+    optimizer = torch.optim.Adam(gaussians.get_trainable_parameters(), lr=0.01)
 
-    for i in range(1):
+    for i in range(10):
         for idx, view in enumerate(tqdm(views[:1], desc="Rendering progress")):
             rendering = render(view, gaussians, pipeline, background, use_trained_exp=train_test_exp, separate_sh=separate_sh)["render"]
             gt = view.original_image[0:3, :, :]
@@ -66,12 +69,24 @@ def render_set(model_path, name, iteration, views, gaussians, pipeline, backgrou
             if args.train_test_exp:
                 rendering = rendering[..., rendering.shape[-1] // 2:]
                 gt = gt[..., gt.shape[-1] // 2:]
-            save_image(rendering, os.path.join(render_path, '{0:05d}'.format(idx) + ".png"))
+            save_image(rendering, os.path.join(render_path, '{0:05d}'.format(i) + ".png"))
             # torchvision.utils.save_image(rendering, os.path.join(render_path, '{0:05d}'.format(idx) + ".png"))
             if i == 0:
                 torchvision.utils.save_image(gt, os.path.join(gts_path, '{0:05d}'.format(idx) + ".png"))
             loss = loss_fn(rendering, gt, lambda_l1=0.8)
             loss["total_loss"].backward()
+            rand_idx_start = 3
+            rand_idx_end = 4
+            print("Opacity grad: ", gaussians._opacity.grad[rand_idx_start:rand_idx_end])
+            print("Quaternion grad: ", gaussians._rotation.grad[rand_idx_start:rand_idx_end])
+            print("Scaling grad: ", gaussians._scaling.grad[rand_idx_start:rand_idx_end])
+            print("Points grad: ", gaussians._xyz.grad[rand_idx_start:rand_idx_end])
+
+            # import pdb; pdb.set_trace()
+            # gaussians._opacity.grad
+            print(f"loss: {loss['total_loss']}")
+            print(f"l1_loss: {loss['l1_loss']}")
+            print(f"ssim_loss: {loss['ssim_loss']} \n\n\n\n")
             optimizer.step()
             optimizer.zero_grad()
 
@@ -81,6 +96,7 @@ def render_sets(dataset : ModelParams, iteration : int, pipeline : PipelineParam
     scene = Scene(dataset, gaussians, load_iteration=iteration, shuffle=False)
 
     bg_color = [1,1,1] if dataset.white_background else [0, 0, 0]
+    print(f"bg_color: {bg_color}")
     background = torch.tensor(bg_color, dtype=torch.float32, device="cuda")
 
     if not skip_train:

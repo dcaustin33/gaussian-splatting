@@ -9,18 +9,25 @@
 # For inquiries contact  george.drettakis@inria.fr
 #
 
-import torch
-import numpy as np
-from utils.general_utils import inverse_sigmoid, get_expon_lr_func, build_rotation
-from torch import nn
-import os
 import json
-from utils.system_utils import mkdir_p
+import os
+
+import numpy as np
+import torch
 from plyfile import PlyData, PlyElement
-from utils.sh_utils import RGB2SH
 from simple_knn._C import distCUDA2
+from torch import nn
+
+from utils.general_utils import (
+    build_rotation,
+    build_scaling_rotation,
+    get_expon_lr_func,
+    inverse_sigmoid,
+    strip_symmetric,
+)
 from utils.graphics_utils import BasicPointCloud
-from utils.general_utils import strip_symmetric, build_scaling_rotation
+from utils.sh_utils import RGB2SH
+from utils.system_utils import mkdir_p
 
 try:
     from diff_gaussian_rasterization import SparseGaussianAdam
@@ -65,8 +72,8 @@ class GaussianModel:
         self.spatial_lr_scale = 0
         self.setup_functions()
         
-        self.start_idx = 3
-        self.idx = 4
+        self.start_idx = 0
+        self.idx = None
         print(f"WARNING: Only passing {self.idx} points to the rasterizer")
 
     def capture(self):
@@ -180,8 +187,16 @@ class GaussianModel:
         self._exposure = nn.Parameter(exposure.requires_grad_(True))
 
     def get_trainable_parameters(self):
-        return [self._xyz, self._features_dc, self._features_rest, self._opacity, self._scaling, self._rotation]
-
+        print("only optimizing opacity")
+        # return [self._xyz, self._features_dc, self._features_rest, self._opacity, self._scaling, self._rotation]
+        return [
+            self._opacity, 
+            self._scaling, 
+            self._rotation, 
+            self._features_dc, 
+            self._features_rest, 
+            self._xyz
+        ]
     def training_setup(self, training_args):
         self.percent_dense = training_args.percent_dense
         self.xyz_gradient_accum = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")
