@@ -22,6 +22,40 @@ from tqdm import tqdm
 from utils.image_utils import psnr
 from argparse import ArgumentParser, Namespace
 from arguments import ModelParams, PipelineParams, OptimizationParams
+import cv2
+import numpy as np
+import wandb
+from dataclasses import dataclass
+from typing import List, Dict
+
+@dataclass
+class Metrics:
+    l1_loss: List[float]
+    ssim_loss: List[float]
+    total_loss: List[float]
+    val: bool = False
+
+    def log(self, step_number: int=0) -> Dict[str, float]:
+        if self.val:
+            return {
+                "val_l1_loss": np.array(self.l1_loss).mean(),
+                "val_ssim_loss": np.array(self.ssim_loss).mean(),
+                "val_total_loss": np.array(self.total_loss).mean(),
+                "val_step_number": step_number,
+            }
+        else:
+            return {
+                "l1_loss": np.array(self.l1_loss).mean(),
+                "ssim_loss": np.array(self.ssim_loss).mean(),
+                "total_loss": np.array(self.total_loss).mean(),
+                "step_number": step_number,
+            }
+    
+    def reset(self):
+        self.l1_loss = []
+        self.ssim_loss = []
+        self.total_loss = []
+
 try:
     from torch.utils.tensorboard import SummaryWriter
     TENSORBOARD_FOUND = True
@@ -39,6 +73,12 @@ try:
     SPARSE_ADAM_AVAILABLE = True
 except:
     SPARSE_ADAM_AVAILABLE = False
+
+def save_image(image, path):
+    image = (image.permute(1, 2, 0).detach().cpu().numpy() * 255.0).astype(np.uint8)
+    image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+    cv2.imwrite(path, image)
+
 
 def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoint_iterations, checkpoint, debug_from):
 
@@ -67,6 +107,12 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
     viewpoint_indices = list(range(len(viewpoint_stack)))
     ema_loss_for_log = 0.0
     ema_Ll1depth_for_log = 0.0
+    wandb.init(
+        project="gaussian-splatting",
+        name="original",
+        config=vars(args),
+    )
+    metrics = Metrics(l1_loss=[], ssim_loss=[], total_loss=[])
 
     progress_bar = tqdm(range(first_iter, opt.iterations), desc="Training progress")
     first_iter += 1
@@ -98,12 +144,10 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         if not viewpoint_stack:
             viewpoint_stack = scene.getTrainCameras().copy()
             viewpoint_indices = list(range(len(viewpoint_stack)))
-        # rand_idx = randint(0, len(viewpoint_indices) - 1)
+        rand_idx = randint(0, len(viewpoint_indices) - 1)
         rand_idx = 0
-        print(f"WARNING: Using only one ANGLE: {rand_idx}")
         viewpoint_cam = viewpoint_stack.pop(rand_idx)
         vind = viewpoint_indices.pop(rand_idx)
-        import pdb; pdb.set_trace()
 
         # Render
         if (iteration - 1) == debug_from:
@@ -113,7 +157,6 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
 
         render_pkg = render(viewpoint_cam, gaussians, pipe, bg, use_trained_exp=dataset.train_test_exp, separate_sh=SPARSE_ADAM_AVAILABLE)
         image, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
-
         if viewpoint_cam.alpha_mask is not None:
             alpha_mask = viewpoint_cam.alpha_mask.cuda()
             image *= alpha_mask
@@ -142,10 +185,27 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         else:
             Ll1depth = 0
 
-        loss.backward()
-        import pdb; pdb.set_trace()
+        wandb.log({
+            "ind_total_loss": loss.item(),
+            "ind_l1_loss": Ll1.item(),
+            "ind_ssim_loss": (1.0 - ssim_value).item(),
+            "number_gaussians": gaussians.get_xyz.shape[0],
+            "lr": gaussians.optimizer.param_groups[0]['lr'],
+        })
+        metrics.l1_loss.append(Ll1.item())
+        metrics.ssim_loss.append((1.0 - ssim_value).item())
+        metrics.total_loss.append(loss.item())
 
-        iter_end.record()
+        if iteration % 20 == 0:
+            wandb.log(metrics.log(iteration))
+            metrics.reset()
+
+        if iteration % 100 == 0:
+            save_image(image, os.path.join("/home/da2986/gaussian-splatting/output_images", "render_{}.png".format(iteration)))  
+
+        loss.backward()
+
+        iter_end.record()    
 
         with torch.no_grad():
             # Progress bar
@@ -168,6 +228,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
             if iteration < opt.densify_until_iter:
                 # Keep track of max radii in image-space for pruning
                 gaussians.max_radii2D[visibility_filter] = torch.max(gaussians.max_radii2D[visibility_filter], radii[visibility_filter])
+                
                 gaussians.add_densification_stats(viewspace_point_tensor, visibility_filter)
 
                 if iteration > opt.densify_from_iter and iteration % opt.densification_interval == 0:
@@ -266,7 +327,7 @@ if __name__ == "__main__":
     parser.add_argument('--debug_from', type=int, default=-1)
     parser.add_argument('--detect_anomaly', action='store_true', default=False)
     parser.add_argument("--test_iterations", nargs="+", type=int, default=[7_000, 30_000])
-    parser.add_argument("--save_iterations", nargs="+", type=int, default=[7_000, 30_000])
+    parser.add_argument("--save_iterations", nargs="+", type=int, default=[1, 1_000, 2_000, 3_000, 4_000, 5_000, 6_000, 7_000])
     parser.add_argument("--quiet", action="store_true")
     parser.add_argument('--disable_viewer', action='store_true', default=False)
     parser.add_argument("--checkpoint_iterations", nargs="+", type=int, default=[])

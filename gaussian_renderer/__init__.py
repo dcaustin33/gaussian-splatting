@@ -79,15 +79,15 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
     # from SHs in Python, do it. If not, then SH -> RGB conversion will be done by rasterizer.
     shs = None
     colors_precomp = None
-    print("WARNING: Converting SHs to RGB in Python")
+    # print(f"WARNING: Converting SHs to RGB in Python. Override color: {override_color}")
     pipe.convert_SHs_python = True
     if override_color is None:
         if pipe.convert_SHs_python:
-            shs_view = pc.get_features.transpose(1, 2).view(-1, 3, (pc.max_sh_degree+1)**2)
-            dir_pp = (pc.get_xyz - viewpoint_camera.camera_center.repeat(pc.get_features.shape[0], 1))
-            dir_pp_normalized = dir_pp/dir_pp.norm(dim=1, keepdim=True)
-            sh2rgb = eval_sh(pc.active_sh_degree, shs_view, dir_pp_normalized)
-            colors_precomp = torch.clamp_min(sh2rgb + 0.5, 0.0)
+            # shs_view = pc.get_features.transpose(1, 2).view(-1, 3, (pc.max_sh_degree+1)**2)
+            # dir_pp = (pc.get_xyz - viewpoint_camera.camera_center.repeat(pc.get_features.shape[0], 1))
+            # dir_pp_normalized = dir_pp/dir_pp.norm(dim=1, keepdim=True)
+            # sh2rgb = eval_sh(pc.active_sh_degree, shs_view, dir_pp_normalized)
+            # colors_precomp = torch.clamp_min(sh2rgb + 0.5, 0.0)
             colors_precomp = convert_sh_to_rgb(pc.get_features_dc).squeeze(1)
         else:
             if separate_sh:

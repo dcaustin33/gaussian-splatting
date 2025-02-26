@@ -9,3 +9,6 @@ screenshots
 *.venv
 tandt/
 truck/
+output_images/
+wandb/
+generate.png

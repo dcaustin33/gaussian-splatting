@@ -74,7 +74,6 @@ class GaussianModel:
         
         self.start_idx = 0
         self.idx = None
-        print(f"WARNING: Only passing {self.idx} points to the rasterizer")
 
     def capture(self):
         return (
@@ -278,6 +277,7 @@ class GaussianModel:
         PlyData([el]).write(path)
 
     def reset_opacity(self):
+
         opacities_new = self.inverse_opacity_activation(torch.min(self.get_opacity, torch.ones_like(self.get_opacity)*0.01))
         optimizable_tensors = self.replace_tensor_to_optimizer(opacities_new, "opacity")
         self._opacity = optimizable_tensors["opacity"]
@@ -436,7 +436,7 @@ class GaussianModel:
         selected_pts_mask = torch.where(padded_grad >= grad_threshold, True, False)
         selected_pts_mask = torch.logical_and(selected_pts_mask,
                                               torch.max(self.get_scaling, dim=1).values > self.percent_dense*scene_extent)
-
+        print(f"Densifying and splitting {selected_pts_mask.sum()} points")
         stds = self.get_scaling[selected_pts_mask].repeat(N,1)
         means =torch.zeros((stds.size(0), 3),device="cuda")
         samples = torch.normal(mean=means, std=stds)
@@ -459,7 +459,8 @@ class GaussianModel:
         selected_pts_mask = torch.where(torch.norm(grads, dim=-1) >= grad_threshold, True, False)
         selected_pts_mask = torch.logical_and(selected_pts_mask,
                                               torch.max(self.get_scaling, dim=1).values <= self.percent_dense*scene_extent)
-        
+        # torch.where(torch.norm(grads, dim=-1) >= max_grad, True, False)
+        print(f"Densifying and cloning {selected_pts_mask.sum()} points")
         new_xyz = self._xyz[selected_pts_mask]
         new_features_dc = self._features_dc[selected_pts_mask]
         new_features_rest = self._features_rest[selected_pts_mask]
@@ -478,6 +479,9 @@ class GaussianModel:
         self.tmp_radii = radii
         self.densify_and_clone(grads, max_grad, extent)
         self.densify_and_split(grads, max_grad, extent)
+
+        if max_screen_size:
+            import pdb; pdb.set_trace()
 
         prune_mask = (self.get_opacity < min_opacity).squeeze()
         if max_screen_size:
